@@ -6,12 +6,12 @@ ALLOWED_HOSTS = ["api.hairin.xyz"]
 
 CSRF_TRUSTED_ORIGINS = [
     "https://api.hairin.xyz",
-    "https://site.hairin.xyz",  # if you use frontend subdomain later
+    "https://site.hairin.xyz",
 ]
 
 CORS_ALLOWED_ORIGINS = [
     "https://site.hairin.xyz",
-    "https://ecommerce-neon-mu.vercel.app",  # your current frontend in vercel
+    "https://ecommerce-neon-mu.vercel.app",
 ]
 
 DATABASES = {
@@ -24,3 +24,8 @@ DATABASES = {
         'PORT': config("DB_PORT"),
     }
 }
+
+# 👇 Add this block for best production practice
+SECURE_SSL_REDIRECT = True
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True

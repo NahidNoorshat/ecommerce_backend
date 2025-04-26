@@ -1,1 +1,16 @@
+# Ignore environment files
 .env
+
+# Ignore compiled files
+*.pyc
+__pycache__/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore virtual environment
+venv/
+
+# Ignore staticfiles (optional if generated separately)
+staticfiles/

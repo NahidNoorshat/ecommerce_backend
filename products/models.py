@@ -135,22 +135,39 @@ class Product(models.Model):
             self.save()
 
     def get_final_price(self):
-            # Price is the final price after discount
-            return self.price if self.price is not None else None
+        if self.price is None:
+            return None
+        if self.discount == 100:
+            return Decimal('0.00')
+        return self.price
+
 
     def get_original_price(self):
-        # Reverse-calculate original price based on final price and discount
-        if self.price is not None and self.discount > 0:
-            return self.price / (1 - self.discount / Decimal(100))
-        return self.price if self.price is not None else None
+        if self.price is None:
+            return None
+        if self.discount and self.discount > 0 and self.discount < 100:
+            return round(self.price / (Decimal(1) - (self.discount / Decimal(100))), 2)
+        return self.price
+
+
+
 
     def get_variant_final_price(self, variant):
-        return variant.price if variant else None
+        if variant and variant.price is not None:
+            if self.discount == 100:
+                return Decimal('0.00')
+            return variant.price
+        return None
 
     def get_variant_original_price(self, variant):
-        if variant and self.discount > 0:
-            return variant.price / (1 - self.discount / Decimal(100))
-        return variant.price if variant else None
+        if variant and variant.price is not None:
+            if self.discount and self.discount > 0 and self.discount < 100:
+                return round(variant.price / (Decimal(1) - (self.discount / Decimal(100))), 2)
+            return variant.price
+        return None
+
+
+
 
     def __str__(self):
         return self.name or "Unnamed Product"

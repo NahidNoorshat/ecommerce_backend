@@ -4,13 +4,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
-from django.contrib.auth import authenticate
+from django.contrib.auth import authenticate, get_user_model
 from .serializers import RegisterSerializer
 from django.contrib.auth import update_session_auth_hash
 from users.serializers import UserSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-
+User = get_user_model()
 
 # RegisterView for handling user registration
 class RegisterView(APIView):
@@ -24,26 +24,48 @@ class RegisterView(APIView):
 # LoginView for handling user login and JWT generation
 class LoginView(APIView):
     def post(self, request, *args, **kwargs):
-        username = request.data.get('username')
-        password = request.data.get('password')
-        
-        # Authenticate the user
-        user = authenticate(username=username, password=password)
-        
-        if user:
-            # Generate JWT tokens
-            refresh = RefreshToken.for_user(user)
+        username = request.data.get("username")
+        password = request.data.get("password")
+
+        if not username or not password:
             return Response({
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
-                'username': user.username,
-                'email': user.email,
-                'role': user.role,
-                'profile_picture': user.profile_picture.url if user.profile_picture else None,
-                'phone_number': user.phone_number,
-                'address': user.address,
-            })
-        return Response({"detail": "Invalid credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+                "username": ["This field is required."] if not username else [],
+                "password": ["This field is required."] if not password else []
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Case-insensitive username lookup
+        try:
+            user = User.objects.get(username__iexact=username)
+        except User.DoesNotExist:
+            return Response({
+                "username": ["No user found with this username."]
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except User.MultipleObjectsReturned:
+            return Response({
+                "username": ["Multiple accounts found. Please contact support."]
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.check_password(password):
+            return Response({
+                "password": ["Incorrect password."]
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not user.is_active:
+            return Response({
+                "username": ["This account is inactive."]
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "profile_picture": user.profile_picture.url if user.profile_picture else None,
+            "phone_number": user.phone_number,
+            "address": user.address,
+        })
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]

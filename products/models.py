@@ -5,6 +5,8 @@ from django.utils.text import slugify
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 from django.conf import settings
+from django.db.models.signals import pre_save
+from django.db.models import Min
 
 import uuid
 from decimal import Decimal
@@ -75,6 +77,15 @@ class Product(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     has_variants = models.BooleanField(default=False, help_text="Does this product have variants?")
     sku = models.CharField(max_length=100, unique=True, blank=True, null=True, help_text="Stock Keeping Unit (SKU)")
+    default_variant = models.ForeignKey(
+    'ProductVariant',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name='featured_in',
+    help_text="Default variant to display in product card and detail page."
+    )
+
 
     def clean(self):
         if not self.has_variants:
@@ -113,6 +124,21 @@ class Product(models.Model):
                     super().save(update_fields=['sku'])
             else:
                 super().save(*args, **kwargs)
+
+    
+    def update_price_from_variants(self):
+        if self.has_variants:
+            min_price = self.variants.aggregate(Min("price"))["price__min"]
+            if min_price is not None:
+                self.price = min_price
+                self.save(update_fields=["price"])
+
+            # Optional: assign default_variant if missing
+            if not self.default_variant:
+                cheapest = self.variants.order_by("price").first()
+                if cheapest:
+                    self.default_variant = cheapest
+                    self.save(update_fields=["default_variant"])
 
     def update_stock(self):
         if self.has_variants:
@@ -227,12 +253,19 @@ class ProductVariant(models.Model):
 def update_product_stock_on_variant_save(sender, instance, **kwargs):
     if instance.product.has_variants:
         instance.product.update_stock()
+        instance.product.update_price_from_variants()
 
 
 @receiver(pre_delete, sender=ProductVariant)
 def update_product_stock_on_variant_delete(sender, instance, **kwargs):
-    if instance.product.has_variants:
-        instance.product.update_stock()
+    product = instance.product
+    if product.has_variants:
+        product.update_stock()
+        product.update_price_from_variants()
+        if product.default_variant_id == instance.id:
+            product.default_variant = None
+            product.save(update_fields=["default_variant"])
+
 
 
 
@@ -286,3 +319,40 @@ class CartItem(models.Model):
 
     def __str__(self):
         return f"{self.product.name} ({self.variant or 'No Variant'}) - Qty: {self.quantity}"
+    
+
+class ProductImage(models.Model):
+    product = models.ForeignKey(Product, related_name='images', on_delete=models.CASCADE)
+    image = models.ImageField(upload_to='product_images/')
+    alt_text = models.CharField(max_length=255, blank=True, null=True)
+    is_main = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        if self.is_main:
+            # If this is set as main, set all other images for this product to not main
+            ProductImage.objects.filter(product=self.product, is_main=True).update(is_main=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.product.name} - {'Main' if self.is_main else 'Gallery'} Image"
+
+
+
+@receiver(pre_save, sender=ProductImage)
+def remove_default_no_image(sender, instance, **kwargs):
+    """
+    When uploading a new Main Image, remove any existing 'no-image.jpg' ProductImage.
+    """
+    if instance.is_main and instance.pk is None:
+        # Only when a new main image is being added
+        existing_default = ProductImage.objects.filter(
+            product=instance.product,
+            image='product_images/no-image.jpg',
+            is_main=True
+        ).first()
+
+        if existing_default:
+            existing_default.delete()
+
+
+

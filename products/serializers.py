@@ -1,7 +1,7 @@
 from rest_framework import serializers
 import uuid
 import json
-from .models import Category, Product, ProductVariant, VariantAttribute, VariantAttributeValue, CartItem
+from .models import Category, Product, ProductVariant, VariantAttribute, VariantAttributeValue, CartItem, ProductImage
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,25 +58,53 @@ class ProductVariantSerializer(serializers.ModelSerializer):
 
     def get_variant_name(self, obj):
         return " ".join(attr.value for attr in obj.attributes.all())
+    
+
+class ProductImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProductImage
+        fields = ['id', 'image', 'alt_text', 'is_main']
+
 
 class ProductSerializer(serializers.ModelSerializer):
     final_price = serializers.SerializerMethodField()
     original_price = serializers.SerializerMethodField()
+    default_variant = ProductVariantSerializer(read_only=True)
+    default_variant_id = serializers.PrimaryKeyRelatedField(    # ✅ add this line
+        queryset=ProductVariant.objects.all(),
+        source='default_variant',
+        write_only=True,
+        required=False
+    )
     variants = ProductVariantSerializer(many=True, required=False)
-    image = serializers.ImageField(required=False, allow_empty_file=False)
+    main_image = serializers.SerializerMethodField()
+    gallery_images = serializers.SerializerMethodField()
+    images = ProductImageSerializer(many=True, read_only=True)  # All images (optional)
+
+    # image = serializers.ImageField(required=False, allow_empty_file=False)
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
     category_data = CategorySerializer(source='category', read_only=True)
 
     class Meta:
         model = Product
         fields = [
-            'id', 'name', 'slug', 'description', 'price', 'stock', 'discount', 'category', 'category_data',
-            'unit', 'custom_unit', 'label', 'status', 'image', 'has_variants', 'variants',
-            'sku', 'created_at', 'updated_at', 'final_price', 'original_price'
-        ]
+        'id', 'name', 'slug', 'description', 'price', 'stock', 'discount', 'category', 'category_data',
+        'unit', 'custom_unit', 'label', 'status', 'has_variants', 'default_variant', 'variants','default_variant_id',
+        'sku', 'created_at', 'updated_at', 'final_price', 'original_price',
+        'main_image', 'gallery_images', 'images'  # ✅ new fields
+        ]   
         extra_kwargs = {
             'category_data': {'source': 'category'}
         }
+
+    def get_main_image(self, obj):
+        main_img = obj.images.filter(is_main=True).first()
+        return ProductImageSerializer(main_img, context=self.context).data if main_img else None
+
+    def get_gallery_images(self, obj):
+        gallery_imgs = obj.images.filter(is_main=False)
+        return ProductImageSerializer(gallery_imgs, many=True, context=self.context).data
+
 
     def get_final_price(self, obj):
         final_price = obj.get_final_price()
@@ -128,49 +156,69 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         logger.debug(f"Creating with validated_data: {validated_data}")
+        request = self.context.get('request')
         variants_data = validated_data.pop('variants', [])
-        image = validated_data.pop('image', None)
         has_variants = validated_data.get('has_variants', False)
 
+        # Handle has_variants
         if has_variants and variants_data:
             validated_data['price'] = None
             validated_data['stock'] = None
 
+        # Handle SKU
         category = validated_data['category']
         if 'sku' not in validated_data or not validated_data['sku']:
             validated_data['sku'] = generate_sku(category)
 
+        # Create Product
         product = Product.objects.create(**validated_data)
-        if image:
-            logger.debug(f"Saving main image: {image}")
-            product.image = image
-            product.save(update_fields=['image'])
-        else:
-            logger.debug("No main image provided")
 
+        # Handle variants
         for variant_data in variants_data:
             variant_image = variant_data.pop('image', None)
             attributes = variant_data.pop('attributes', [])
             variant = ProductVariant.objects.create(product=product, **variant_data)
             if variant_image:
-                logger.debug(f"Saving variant image: {variant_image}")
                 variant.image = variant_image
                 variant.save(update_fields=['image'])
             variant.attributes.set(attributes)
 
+        # Handle uploaded product images
+        uploaded_images = request.FILES.getlist('uploaded_images')
+        main_image_index = int(request.data.get('main_image_index', 0))
+
+        for idx, img in enumerate(uploaded_images):
+            ProductImage.objects.create(
+                product=product,
+                image=img,
+                is_main=(idx == main_image_index),  # ✅ Set true for selected main image
+                alt_text=product.name
+            )
+
+        logger.debug(f"Product created with ID {product.id}")
+        # ✅ Assign default variant after creating all variants
+        if product.has_variants and not product.default_variant:
+            cheapest = product.variants.order_by("price").first()
+            if cheapest:
+                product.default_variant = cheapest
+                product.save(update_fields=["default_variant"])
+
         return product
+
+
 
     def update(self, instance, validated_data):
         logger.debug(f"Updating with validated_data: {validated_data}")
+        request = self.context.get('request')
         variants_data = validated_data.pop('variants', None)
-        image = validated_data.pop('image', None)
 
+        # Update basic fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        if image:
-            instance.image = image
+        instance.save()
 
+        # Handle variants update (existing logic)
         if variants_data is not None:
             existing_variants = {variant.id: variant for variant in instance.variants.all()}
             updated_variant_ids = set()
@@ -200,9 +248,36 @@ class ProductSerializer(serializers.ModelSerializer):
                 if variant_id not in updated_variant_ids:
                     variant.delete()
 
-        instance.save()
+        # 🔥 New Logic: Update uploaded images (optional)
+        uploaded_images = request.FILES.getlist('uploaded_images')
+        main_image_index = request.data.get('main_image_index')
+
+        if uploaded_images:
+            # If new images uploaded, delete previous images
+            instance.images.all().delete()
+
+            # Save new images
+            main_index = int(main_image_index) if main_image_index is not None else 0
+            for idx, img in enumerate(uploaded_images):
+                ProductImage.objects.create(
+                    product=instance,
+                    image=img,
+                    is_main=(idx == main_index),
+                    alt_text=instance.name
+                )
+
         logger.debug(f"Updated instance: {instance}")
+        
+        if instance.has_variants and not instance.default_variant:
+            cheapest = instance.variants.order_by("price").first()
+            if cheapest:
+                instance.default_variant = cheapest
+                instance.save(update_fields=["default_variant"])
+
+
         return instance
+
+
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

@@ -7,7 +7,8 @@ from .views import (
     VariantAttributeViewSet,
     VariantAttributeValueViewSet,
     CartViewSet,
-    BulkDeleteProductsView
+    BulkDeleteProductsView,
+    BulkProductUploadView  
 )
 
 router = DefaultRouter()
@@ -21,4 +22,5 @@ router.register(r'cart', CartViewSet, basename='cart')
 urlpatterns = [
     path('', include(router.urls)),
     path("bulk-delete/", BulkDeleteProductsView.as_view(), name="bulk-delete-products"),
+    path('bulk-upload/', BulkProductUploadView.as_view(), name='bulk-product-upload'),
 ]

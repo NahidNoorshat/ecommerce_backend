@@ -84,14 +84,17 @@ class ProductSerializer(serializers.ModelSerializer):
     # image = serializers.ImageField(required=False, allow_empty_file=False)
     category = serializers.PrimaryKeyRelatedField(queryset=Category.objects.all())
     category_data = CategorySerializer(source='category', read_only=True)
-
+    average_rating = serializers.FloatField(read_only=True)
+    certificate_file = serializers.FileField(required=False, allow_null=True)
+    certificate_description = serializers.CharField(required=False, allow_blank=True)
+    is_verified = serializers.ReadOnlyField()
     class Meta:
         model = Product
         fields = [
         'id', 'name', 'slug', 'description', 'price', 'stock', 'discount', 'category', 'category_data',
         'unit', 'custom_unit', 'label', 'status', 'has_variants', 'default_variant', 'variants','default_variant_id',
         'sku', 'created_at', 'updated_at', 'final_price', 'original_price',
-        'main_image', 'gallery_images', 'images'  # ✅ new fields
+        'main_image', 'gallery_images', 'images', 'average_rating','certificate_file', 'certificate_description', 'is_verified',  # ✅ new fields
         ]   
         extra_kwargs = {
             'category_data': {'source': 'category'}
@@ -215,6 +218,15 @@ class ProductSerializer(serializers.ModelSerializer):
         # Update basic fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+
+        # Update cert fields (NEW)
+        certificate_file = request.FILES.get('certificate_file')
+        if certificate_file:
+            instance.certificate_file = certificate_file
+
+        certificate_description = request.data.get('certificate_description')
+        if certificate_description is not None:
+            instance.certificate_description = certificate_description
 
         instance.save()
 

@@ -6,7 +6,7 @@ from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 from django.conf import settings
 from django.db.models.signals import pre_save
-from django.db.models import Min
+from django.db.models import Min, Avg
 
 import uuid
 from decimal import Decimal
@@ -84,6 +84,18 @@ class Product(models.Model):
     blank=True,
     related_name='featured_in',
     help_text="Default variant to display in product card and detail page."
+    )
+    certificate_file = models.FileField(
+    upload_to='product_certificates/',
+    blank=True,
+    null=True,
+    help_text="Upload a certificate file (PDF or Image)"
+    )
+
+    certificate_description = models.TextField(
+    blank=True,
+    null=True,
+    help_text="Certificate description in rich text (HTML)"
     )
 
 
@@ -193,7 +205,13 @@ class Product(models.Model):
         return None
 
 
-
+    @property
+    def is_verified(self):
+        return bool(self.certificate_file or self.certificate_description)
+     
+    @property
+    def average_rating(self):
+        return self.reviews.aggregate(avg_rating=Avg('rating'))['avg_rating'] or 0
 
     def __str__(self):
         return self.name or "Unnamed Product"

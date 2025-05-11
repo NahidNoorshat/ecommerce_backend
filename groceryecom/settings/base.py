@@ -8,6 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 SECRET_KEY = config("SECRET_KEY")
 
 INSTALLED_APPS = [
+    'daphne',
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -20,6 +21,7 @@ INSTALLED_APPS = [
     "django_filters",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
+    'channels',
     # Your apps
     "users",
     "products",
@@ -27,6 +29,8 @@ INSTALLED_APPS = [
     "shipping",
     "analytics",
     "banners",
+    'reviews',
+    'notifications',
 ]
 
 
@@ -61,6 +65,18 @@ TEMPLATES = [
         },
     },
 ]
+
+# Channels settings
+ASGI_APPLICATION = 'groceryecom.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [('127.0.0.1', 6379)],  # Ensure Redis is running locally
+        },
+    },
+}
 
 WSGI_APPLICATION = "groceryecom.wsgi.application"
 

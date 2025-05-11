@@ -98,14 +98,18 @@ class Order(models.Model):
             Decimal(str(item.price_at_purchase)) * Decimal(str(item.quantity))
             for item in items
         )
+        shipping_cost = Decimal('0.00')
+        if self.shipping_method:
+            shipping_cost = Decimal(str(self.shipping_method.price))
+            logger.info(f"Applied shipping cost: {shipping_cost} for method {self.shipping_method.name}")
         self.discount_amount = Decimal('0.00')
         if coupon and coupon.is_valid():
             discount = (Decimal(str(coupon.discount_percentage)) / Decimal('100')) * subtotal
             self.discount_amount = discount.quantize(Decimal('0.01'))
             logger.info(f"Applied discount: {self.discount_amount} from coupon {coupon.code}")
-        self.total_price = (subtotal - self.discount_amount).quantize(Decimal('0.01'))
+        self.total_price = (subtotal + shipping_cost - self.discount_amount).quantize(Decimal('0.01'))
         self.save()
-        logger.info(f"Order {self.order_id} total calculated: {self.total_price}, discount: {self.discount_amount}")
+        logger.info(f"Order {self.order_id} total calculated: {self.total_price}, shipping: {shipping_cost}, discount: {self.discount_amount}")
     
     def transition_to(self, new_status):
         if new_status not in self.VALID_TRANSITIONS.get(self.status, []):

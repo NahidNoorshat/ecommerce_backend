@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone  # NEW: Import timezone
 import logging
 from shipping.models import ShippingAddress
-from shipping.serializers import ShippingAddressSerializer
+from shipping.serializers import ShippingAddressSerializer, ShippingMethodSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +23,18 @@ class OrderSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField(read_only=True)
     coupon = serializers.CharField(write_only=True, required=False, allow_blank=True)
     shipping_address = serializers.SerializerMethodField(read_only=True)
+    shipping_method = ShippingMethodSerializer(read_only=True, allow_null=True)
 
     class Meta:
         model = Order
         fields = [
             'order_id', 'user', 'username', 'status', 'total_price', 'discount_amount',
             'payment_status', 'payment_method', 'created_at', 'updated_at',
-            'items', 'coupon', 'shipping_address'
+            'items', 'coupon', 'shipping_address', 'shipping_method'
         ]
         read_only_fields = [
             'order_id', 'user', 'username', 'created_at', 'updated_at',
-            'total_price', 'items', 'discount_amount', 'shipping_address'
+            'total_price', 'items', 'discount_amount', 'shipping_address', 'shipping_method'
         ]
 
     def get_username(self, obj):

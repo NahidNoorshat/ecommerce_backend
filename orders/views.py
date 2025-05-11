@@ -4,22 +4,27 @@ from django.conf import settings
 from rest_framework import viewsets, permissions, status, generics, serializers
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
-from rest_framework.permissions import IsAdminUser, AllowAny
+from rest_framework.permissions import IsAdminUser, AllowAny, IsAuthenticated
 from django.db import transaction, models
+from rest_framework.generics import GenericAPIView
 from .models import Order, OrderItem, Coupon
 from products.models import CartItem
 from .serializers import OrderSerializer
+from notifications.models import Notification
 from django.utils import timezone
 from decimal import Decimal
 import random
 import string
 from .permissions import IsAdminOrStaff
 from django.db.models import Q
+from notifications.utils import create_and_push_notification
+
 
 
 from django.views.decorators.csrf import csrf_exempt
 
-from shipping.models import ShippingAddress
+from shipping.models import ShippingAddress, ShippingMethod
+
 from shipping.serializers import ShippingAddressSerializer
 
 import logging
@@ -45,9 +50,9 @@ class OrderViewSet(viewsets.ModelViewSet):
         order.calculate_total()
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdminOrStaff])
-    def update_status(self, request, order_id=None):  # Corrected here
+    def update_status(self, request, order_id=None):
         try:
-            order = self.get_object()  # This will fetch based on order_id
+            order = self.get_object()
             status = request.data.get('status')
 
             if not status:
@@ -56,8 +61,19 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.status = status
             order.save()
 
-            return Response({'success': True, 'message': 'Order status updated successfully'})
+            # ✅ Create review reminder notification if delivered
+            if status == "delivered":
+                for item in order.items.all():
+                    create_and_push_notification(
+                        user=order.user,
+                        title=f"Review your product: {item.product.name}",
+                        message=f"You received {item.product.name}. Share your feedback!",
+                        notification_type="review",
+                        data={"product_slug": item.product.slug}
+                    )
 
+
+            return Response({'success': True, 'message': 'Order status updated successfully'})
         except Exception as e:
             return Response({'error': str(e)}, status=500)
         
@@ -149,6 +165,7 @@ class CheckoutView(generics.CreateAPIView):
     serializer_class = OrderSerializer
 
     def create(self, request, *args, **kwargs):
+        
         user = request.user
         cart_items = CartItem.objects.filter(user=user)
         if not cart_items.exists():
@@ -237,8 +254,8 @@ class CheckoutView(generics.CreateAPIView):
 
 
 
-class OrderPreviewView(generics.GenericAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+class OrderPreviewView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
     serializer_class = OrderSerializer
 
     def get(self, request, *args, **kwargs):
@@ -247,27 +264,51 @@ class OrderPreviewView(generics.GenericAPIView):
         if not cart_items.exists():
             return Response({"detail": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Validate query parameters
         serializer = self.get_serializer(data=request.query_params)
         serializer.is_valid(raise_exception=True)
         coupon = serializer.validated_data.get('coupon_obj')
+        shipping_method_id = request.query_params.get('shipping_method_id')
 
+        # Calculate subtotal
         subtotal = sum(
             Decimal(str(item.variant.price if item.variant else item.product.price)) * Decimal(str(item.quantity))
             for item in cart_items
         )
+
+        # Get shipping cost
+        shipping_cost = Decimal('0.00')
+        if shipping_method_id:
+            try:
+                shipping_method = ShippingMethod.objects.get(id=shipping_method_id)
+                shipping_cost = Decimal(str(shipping_method.price))
+                logger.info(f"Preview: Shipping cost {shipping_cost} for method {shipping_method.name}")
+            except ShippingMethod.DoesNotExist:
+                logger.warning(f"Preview: Invalid shipping_method_id {shipping_method_id}")
+                shipping_cost = Decimal('0.00')
+
+        # Apply coupon discount
         discount_amount = Decimal('0.00')
         if coupon and coupon.is_valid():
             discount_amount = (Decimal(str(coupon.discount_percentage)) / Decimal('100')) * subtotal
             discount_amount = discount_amount.quantize(Decimal('0.01'))
             logger.info(f"Preview: Discount {discount_amount} applied for coupon {coupon.code}")
-        total_price = (subtotal - discount_amount).quantize(Decimal('0.01'))
 
-        return Response({
+        # Calculate total price
+        total_price = (subtotal + shipping_cost - discount_amount).quantize(Decimal('0.01'))
+        if total_price < 0:
+            total_price = Decimal('0.00')
+
+        # Return response
+        response_data = {
             "subtotal": str(subtotal),
+            "shipping_cost": str(shipping_cost),
             "discount_amount": str(discount_amount),
             "total_price": str(total_price),
             "coupon_valid": bool(coupon)
-        })
+        }
+        logger.info(f"Preview response: {response_data}")
+        return Response(response_data, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 @permission_classes([IsAdminUser])

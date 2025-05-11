@@ -10,6 +10,7 @@ from django.contrib.auth import update_session_auth_hash
 from users.serializers import UserSerializer
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from users.serializers import UserSerializer
 User = get_user_model()
 
 # RegisterView for handling user registration
@@ -33,38 +34,28 @@ class LoginView(APIView):
                 "password": ["This field is required."] if not password else []
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Case-insensitive username lookup
         try:
             user = User.objects.get(username__iexact=username)
         except User.DoesNotExist:
-            return Response({
-                "username": ["No user found with this username."]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"username": ["No user found with this username."]}, status=400)
         except User.MultipleObjectsReturned:
-            return Response({
-                "username": ["Multiple accounts found. Please contact support."]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"username": ["Multiple accounts found. Please contact support."]}, status=400)
 
         if not user.check_password(password):
-            return Response({
-                "password": ["Incorrect password."]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"password": ["Incorrect password."]}, status=400)
 
         if not user.is_active:
-            return Response({
-                "username": ["This account is inactive."]
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"username": ["This account is inactive."]}, status=400)
 
         refresh = RefreshToken.for_user(user)
+
+        # ✅ Use full serializer to include `id` and all user fields
+        user_data = UserSerializer(user).data
+
         return Response({
             "refresh": str(refresh),
             "access": str(refresh.access_token),
-            "username": user.username,
-            "email": user.email,
-            "role": user.role,
-            "profile_picture": user.profile_picture.url if user.profile_picture else None,
-            "phone_number": user.phone_number,
-            "address": user.address,
+            "user": user_data
         })
 
 class ChangePasswordView(APIView):

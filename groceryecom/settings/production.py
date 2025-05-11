@@ -1,5 +1,5 @@
 from .base import *
-
+ROOT_URLCONF = "groceryecom.urls"
 DEBUG = False
 
 ALLOWED_HOSTS = ["api.hairin.xyz"]

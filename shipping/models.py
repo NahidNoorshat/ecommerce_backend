@@ -4,7 +4,7 @@ from orders.models import Order
 
 class ShippingAddress(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='shipping_address')
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name='shipping_address', null=True, blank=True)
     address_line_1 = models.CharField(max_length=255)
     address_line_2 = models.CharField(max_length=255, blank=True, null=True)
     city = models.CharField(max_length=100)

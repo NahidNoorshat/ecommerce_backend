@@ -24,3 +24,24 @@ DATABASES = {
         'PORT': '5432',
     }
 }
+
+# development.py
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'channels': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+        'django.channels': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+        },
+    },
+}

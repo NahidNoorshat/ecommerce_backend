@@ -47,3 +47,32 @@ class UserSerializer(serializers.ModelSerializer):
         if value and not value.isdigit():
             raise serializers.ValidationError("Phone number must contain only digits.")
         return value
+
+
+class UserBasicSerializer(serializers.ModelSerializer):
+    """
+    Lightweight user serializer for chat system and other basic listings
+    Includes only essential fields to reduce payload size
+    """
+    profile_picture_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id',
+            'username',
+            'first_name',
+            'last_name',
+            'role',
+            'profile_picture_url'
+        ]
+        read_only_fields = fields
+
+    def get_profile_picture_url(self, obj):
+        """Generate full URL for profile picture if exists"""
+        request = self.context.get('request')
+        if obj.profile_picture:
+            if request:
+                return request.build_absolute_uri(obj.profile_picture.url)
+            return obj.profile_picture.url
+        return None

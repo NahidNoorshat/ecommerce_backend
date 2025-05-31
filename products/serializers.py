@@ -66,6 +66,55 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = ['id', 'image', 'alt_text', 'is_main']
 
 
+
+
+# for chat model 
+class ProductSimpleSerializer(serializers.ModelSerializer):
+    """
+    Lightweight product serializer using ProductImage's main image as thumbnail
+    - Uses your actual ProductImage model with is_main=True as thumbnail source
+    - Includes pricing and essential product info
+    - Ready for chat system integration
+    """
+    thumbnail = serializers.SerializerMethodField()
+    final_price = serializers.SerializerMethodField()
+    original_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'name',
+            'thumbnail',      # From ProductImage (is_main=True)
+            'final_price',    # After discounts
+            'original_price', # Before discounts
+            'unit',           # e.g. 'KG', 'PCS'
+            'custom_unit',    # Custom unit if 'OTHER' selected
+            'status'          # e.g. 'NEW', 'HOT'
+        ]
+        read_only_fields = fields
+
+    def get_thumbnail(self, obj):
+        """Get URL of the main product image with request-aware absolute URL"""
+        request = self.context.get('request')
+        
+        # Get the first image marked as main (your exact model structure)
+        main_image = obj.images.filter(is_main=True).first()
+        
+        if main_image and main_image.image:
+            if request:
+                return request.build_absolute_uri(main_image.image.url)
+            return main_image.image.url
+        return None
+
+    def get_final_price(self, obj):
+        """Use your existing price calculation logic"""
+        return obj.get_final_price()
+
+    def get_original_price(self, obj):
+        """Use your existing original price logic"""
+        return obj.get_original_price()
+
 class ProductSerializer(serializers.ModelSerializer):
     final_price = serializers.SerializerMethodField()
     original_price = serializers.SerializerMethodField()
